@@ -41,7 +41,13 @@ class LoanSerializer(serializers.ModelSerializer):
     member_id = serializers.PrimaryKeyRelatedField(
         queryset=Member.objects.all(), source='member', write_only=True
     )
+    due_date = serializers.DateField(read_only=True)
 
     class Meta:
         model = Loan
-        fields = ['id', 'book', 'book_id', 'member', 'member_id', 'loan_date', 'return_date', 'is_returned']
+        fields = ['id', 'book', 'book_id', 'member', 'member_id', 'loan_date', 'return_date', 'is_returned', 'due_date']
+
+
+class ExtendLoanSerializer(serializers.Serializer):
+    additional_days = serializers.IntegerField(min_value=1, max_value=14)
+    

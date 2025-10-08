@@ -1,9 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from .models import Author, Book, Member, Loan
-from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
+from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer, ExtendLoanSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.db.models import Q, Count
 from .tasks import send_loan_notification
 
 class AuthorViewSet(viewsets.ModelViewSet):
@@ -11,7 +12,7 @@ class AuthorViewSet(viewsets.ModelViewSet):
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related("author").all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -49,6 +50,40 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    # @action(detail=False, methods=["get"])
+    # def top_active(self, request, pk=None):
+    #     now = timezone.now().date()
+    #     top_members = Member.objects.select_related().annotate(
+    #         active_loans=Count("loans", 
+    #             filter = Q("loan__is_returned"=False)
+    #         ).orderby("-active_loans")[:5]
+    #     )
+
+
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=["post"])
+    def extend_due_date(self, request, pk=None):
+        loan = self.get_object()
+        if loan.is_returned:
+            return Response({'error': 'Loan nolonger active'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        current_date = timezone.now().date()
+        if loan.due_date < current_date:
+            return Response({'error': 'Loan is overdue'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = ExtendLoanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        additional_days = serializer.validated_data["additional_days"]
+        loan.due_date = loan.due_date + timezone.timedelta(days=additional_days)
+        loan.save()
+        return Response(
+            {
+                "id": loan.id,
+                "due_date": loan.due_date
+            }, 
+            status=status.HTTP_200_OK
+        )
